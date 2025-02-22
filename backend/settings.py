@@ -137,5 +137,5 @@ EMAIL_HOST = 'smtp.example.com'
 EMAIL_PORT = 587
 EMAIL_USE_TLS = True
 EMAIL_HOST = 'smtp.gmail.com'  # Changed to Gmail SMTP server
-EMAIL_HOST_USER = 'piyushdayal108@gmail.com'
-EMAIL_HOST_PASSWORD = 'mxrf uchq efmw bjke'
+EMAIL_HOST_USER = 'managerit.ssrgsp@gmail.com '
+EMAIL_HOST_PASSWORD = 'sedr Isnk fzzu excs'
