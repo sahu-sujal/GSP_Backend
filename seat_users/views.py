@@ -309,6 +309,7 @@ def generate_otp(request):
     
     # Extract user details and OTP method from the request
     user_data = data.get('email', {})
+    print('email', user_data)
     is_resend = data.get('isResend', False)  
     otp_method = user_data.get('otpMethod', 'email')  # Get OTP method from request
     print('otp_method ', otp_method)
@@ -444,6 +445,8 @@ def generate_otp(request):
         
         # Mask contact based on OTP method
         contact = email if otp_method == 'email' else phone
+        print('contact ', contact)
+        print('email ', email)
         masked_contact = (
             f"{'*' * (len(contact.split('@')[0]) - 2)}{contact[-2:]}@{contact.split('@')[1]}"
             if otp_method == 'email'
