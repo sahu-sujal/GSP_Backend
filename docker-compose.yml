@@ -2,13 +2,16 @@ version: "3.8"
 
 services:
   django:
-    image: my-django-app
     build: .
+    image: my-django-app  # Ensures the image is built and used correctly
     ports:
       - "8080:8080"
     volumes:
-      - /home/user/my-django-project:/app
+      - /home/admin/GSP_Backend:/app  # Persist data across restarts
     deploy:
+      replicas: 2  # Run 2 replicas
+      restart_policy:
+        condition: on-failure
       placement:
         constraints:
           - "node.role==manager"
