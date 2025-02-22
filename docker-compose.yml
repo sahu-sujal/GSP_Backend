@@ -7,7 +7,7 @@ services:
     ports:
       - "8080:8080"
     volumes:
-      - /home/user/my-django-project:/app
+      - /home/admin/GSP_Backend:/app
     deploy:
       placement:
         constraints:
