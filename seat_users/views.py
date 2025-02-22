@@ -880,10 +880,9 @@ def generate_pdf(request):
         }
 
         # Configure wkhtmltopdf path based on environment
-        if os.name == 'nt':  # Windows
-            config = pdfkit.configuration(wkhtmltopdf=r"C:\\Program Files\\wkhtmltopdf\\bin\\wkhtmltopdf.exe")
-        else:  # Linux/Unix
-            config = pdfkit.configuration(wkhtmltopdf=r"/usr/bin/wkhtmltopdf")
+        config = pdfkit.configuration(
+            wkhtmltopdf=r"C:\\Program Files\\wkhtmltopdf\\bin\\wkhtmltopdf.exe" if os.name == 'nt' else r"/usr/bin/wkhtmltopdf"
+        )
 
         # Generate PDF with improved configuration and include stylesheet
         css_path = os.path.join(os.path.dirname(__file__), 'static', 'ticket.css')
