@@ -7,7 +7,7 @@ services:
     ports:
       - "8080:8080"
     volumes:
-      - /home/admin/GSP_Backend:/app  # Persist data across restarts
+      - /home/admin/GSP_Backend:/app
     deploy:
       replicas: 2  # Run 2 replicas
       restart_policy:

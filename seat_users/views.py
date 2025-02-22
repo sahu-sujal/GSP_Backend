@@ -268,10 +268,6 @@ def send_sms(email, context):
                 <span>Industry:</span>
                 <span>{{ industry }}</span>
             </div>
-            <div class="detail-item">
-                <span>Total Amount:</span>
-                <span>₹{{ total_price|floatformat:2 }}</span>
-            </div>
         </div>
 
         <p class="warning">Please do not share this OTP with anyone.</p>
@@ -314,6 +310,10 @@ def generate_otp(request):
     otp_method = user_data.get('otpMethod', 'email')  # Get OTP method from request
     print('otp_method ', otp_method)
     
+    # Get total_price from the correct location in user_data
+    total_price = user_data.get('totalPrice', 0)
+    print('total_price ', total_price)
+
     if is_resend:
         contact = user_data
         try:
@@ -372,7 +372,7 @@ def generate_otp(request):
     designation = user_data.get('designation')
     industry = user_data.get('industry')
     selected_courses = user_data.get('selectedCourses', {})
-    total_price = data.get('totalPrice', 0)
+    print('total_price ', total_price)
     
     # Validate required fields based on OTP method
     if otp_method == 'email' and not email:
@@ -384,9 +384,9 @@ def generate_otp(request):
         # Try to get existing user or create new one
         try:
             if otp_method == 'email':
-                user = User.objects.get(email=email)
+                user = User.objects.filter(email=email).order_by('-created_at').first()
             else:
-                user = User.objects.get(phone_number=phone)
+                user = User.objects.filter(phone_number=phone).order_by('-created_at').first()
             # Update user details
             user.full_name = full_name
             user.phone_number = phone if phone else user.phone_number
@@ -473,10 +473,11 @@ def verify_otp(request):
 
     try:
         # Find the billing based on the OTP method used
+        
         if otp_method == 'email':
-            user = User.objects.get(email=contact)
+            user = User.objects.filter(email=contact).order_by('-created_at').first()
         else:
-            user = User.objects.get(phone_number=contact)
+            user = User.objects.filter(phone_number=contact).order_by('-created_at').first()
 
         if user_id and str(user.id) != str(user_id):
             return JsonResponse({"message": "User ID mismatch"}, status=400)

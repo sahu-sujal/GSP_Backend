@@ -2,7 +2,7 @@ from django.urls import path
 from . import views
 
 urlpatterns = [
-    # Add your URL patterns here
-    # Example:
-    # path('example/', views.example_view, name='example'),
+    path('login', views.admin_login, name='admin_login'),
+    path('register', views.admin_register, name='admin_register'),
+    path('protected', views.protected_route, name='protected_route'),
 ]
