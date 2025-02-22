@@ -1,71 +1,95 @@
-# Ensure there are no circular imports here
-from django.shortcuts import render
-from django.http import JsonResponse
-from django.views.decorators.csrf import csrf_exempt
-from django.contrib.auth.hashers import check_password
-from django.views.decorators.http import require_POST
-from seat_users.models import User, Course
+from seat_users.models import Billing, User
+from .models import Admin
+from django.contrib.auth.hashers import make_password, check_password
+from django.core import signing
+from django.core.signing import BadSignature, SignatureExpired
+from datetime import timedelta, datetime
+from functools import wraps
+from django.conf import settings
 import json
+from django.views.decorators.http import require_POST, require_GET
+from django.views.decorators.csrf import csrf_exempt
+from django.http import JsonResponse
 
-# Create your views here.
+def admin_token_required(f):
+    @wraps(f)
+    def decorated(request, *args, **kwargs):
+        token = None
+        
+        if 'Authorization' in request.headers:
+            auth_header = request.headers['Authorization']
+            try:
+                token = auth_header.split(" ")[1]
+            except IndexError:
+                return JsonResponse({'message': 'Invalid token format'}, status=401)
+        
+        if not token:
+            return JsonResponse({'message': 'Token is missing'}, status=401)
+        
+        try:
+            # 24 hours = 86400 seconds
+            data = signing.loads(token, max_age=86400, salt='admin token')
+            if not data.get('is_admin'):
+                return JsonResponse({'message': 'Invalid admin token'}, status=401)
+        except SignatureExpired:
+            return JsonResponse({'message': 'Token has expired'}, status=401)
+        except BadSignature:
+            return JsonResponse({'message': 'Invalid token'}, status=401)
+            
+        return f(request, *args, **kwargs)
+    return decorated
+
 
 @csrf_exempt
-@require_POST
 def admin_login(request):
-    data = json.loads(request.body)
     try:
-        user = User.objects.get(email=data['email'], role='admin')
-        if not check_password(user.password, data['password']):
-            return JsonResponse({"message": "Invalid credentials"}, status=401)
-        
-        # Assuming you have a method to create access tokens
-        access_token = create_access_token(user.id)
-        return JsonResponse({"access_token": access_token})
-    except User.DoesNotExist:
-        return JsonResponse({"message": "Invalid credentials"}, status=401)
-
-@csrf_exempt
-def get_all_courses(request):
-    courses = Course.objects.all()
-    return JsonResponse([course.to_dict() for course in courses], safe=False)
-
-@csrf_exempt
-@require_POST
-def create_course(request):
-    data = json.loads(request.body)
-    new_course = Course(
-        course_name=data['course_name'],
-        branch=data['branch'],
-        total_seats=data['total_seats'],
-        left_seats=data['total_seats'],
-        price_per_seat=data['price_per_seat']
-    )
-    new_course.save()
-    return JsonResponse(new_course.to_dict(), status=201)
-
-@csrf_exempt
-@require_POST
-def update_course(request, course_id):
-    try:
-        course = Course.objects.get(pk=course_id)
         data = json.loads(request.body)
+    except json.JSONDecodeError:
+        return JsonResponse({'message': 'Invalid JSON'}, status=400)
         
-        course.total_seats = data.get('total_seats', course.total_seats)
-        course.locked_seats = data.get('locked_seats', course.locked_seats)
-        course.price_per_seat = data.get('price_per_seat', course.price_per_seat)
-        course.update_seats()
-        
-        course.save()
-        return JsonResponse(course.to_dict())
-    except Course.DoesNotExist:
-        return JsonResponse({"message": "Course not found"}, status=404)
+    username = data.get('username')
+    password = data.get('password')
+    
+    try:
+        admin = Admin.objects.get(username=username)
+        if check_password(password, admin.password):
+            token = signing.dumps({
+                'admin_id': admin.id,
+                'username': admin.username,
+                'is_admin': True
+            }, salt='admin token')
+            
+            return JsonResponse({
+                'token': token,
+                'message': 'Login successful'
+            })
+        else:
+            return JsonResponse({'message': 'Invalid credentials'}, status=401)
+    except Admin.DoesNotExist:
+        return JsonResponse({'message': 'Invalid credentials'}, status=401)
 
 @csrf_exempt
-@require_POST
-def delete_course(request, course_id):
+def admin_register(request):
     try:
-        course = Course.objects.get(pk=course_id)
-        course.delete()
-        return JsonResponse({"message": "Course deleted successfully"})
-    except Course.DoesNotExist:
-        return JsonResponse({"message": "Course not found"}, status=404)
+        data = json.loads(request.body)
+        print('data:', data)
+    except json.JSONDecodeError:
+        return JsonResponse({'message': 'Invalid JSON'}, status=400)
+        
+    username = data.get('username')
+    password = data.get('password')
+    
+    if Admin.objects.filter(username=username).exists():
+        return JsonResponse({'message': 'Username already exists'}, status=400)
+    
+    admin = Admin.objects.create(
+        username=username,
+        password=make_password(password)
+    )
+    
+    return JsonResponse({'message': 'Admin registered successfully'}, status=201)
+
+@require_GET
+@admin_token_required
+def protected_route(request):
+    return JsonResponse({'message': 'This is a protected route'})
