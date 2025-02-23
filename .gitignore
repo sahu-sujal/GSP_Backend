@@ -8,3 +8,29 @@
 *.db
 db/
 data/
+
+# SQLite database files
+*.sqlite3
+db.sqlite3
+*.sqlite3-journal
+
+# Python cache files
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.coverage
+
+
+# Ignore SQLite database file
+db.sqlite3
+
+# Ignore SQLite database journal file (optional)
+
+db.sqlite3-journal
+
+
+# Ignore Python cache files
+__pycache__/
+*.pyc
+*.pyo
