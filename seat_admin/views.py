@@ -11,6 +11,7 @@ from django.views.decorators.http import require_POST, require_GET
 from django.views.decorators.csrf import csrf_exempt
 from django.http import JsonResponse
 
+
 def admin_token_required(f):
     @wraps(f)
     def decorated(request, *args, **kwargs):
@@ -44,6 +45,7 @@ def admin_token_required(f):
 def admin_login(request):
     try:
         data = json.loads(request.body)
+        print('data:', data)
     except json.JSONDecodeError:
         return JsonResponse({'message': 'Invalid JSON'}, status=400)
         
@@ -64,8 +66,10 @@ def admin_login(request):
                 'message': 'Login successful'
             })
         else:
+            print('here r')
             return JsonResponse({'message': 'Invalid credentials'}, status=401)
     except Admin.DoesNotExist:
+        print('Admin does not exist')
         return JsonResponse({'message': 'Invalid credentials'}, status=401)
 
 @csrf_exempt
@@ -89,7 +93,27 @@ def admin_register(request):
     
     return JsonResponse({'message': 'Admin registered successfully'}, status=201)
 
-@require_GET
+
+
+@csrf_exempt
 @admin_token_required
-def protected_route(request):
-    return JsonResponse({'message': 'This is a protected route'})
+def get_admin_dashboard_data(request):
+    if request.method != 'GET':
+        return JsonResponse({'message': 'Method not allowed'}, status=405)
+    try :
+        billings = Billing.objects.all()
+        users = User.objects.all()
+        user_data = []
+        billings_data = []
+        for user in users:
+            user_data.append(user.to_dict())
+        
+        for bill in billings:
+            billings_data.append(bill.to_dict())
+        
+        return JsonResponse({
+            'users': user_data,
+            'billings': billings_data
+        }, status=200)
+    except Exception as e:
+        return JsonResponse({'message': str(e)}, status=500)

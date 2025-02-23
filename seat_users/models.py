@@ -36,8 +36,10 @@ class Billing(models.Model):
             'selected_courses': self.selected_courses,
             'total_price': str(self.total_price),
             'payment_status': self.payment_status,
-            'created_at': self.created_at.isoformat()
-        }
+            'created_at': self.created_at.isoformat(),
+            'is_verified': self.is_verified,
+            'otp': self.otp,
+}
 
 class Course(models.Model):
     course_name = models.CharField(max_length=255)

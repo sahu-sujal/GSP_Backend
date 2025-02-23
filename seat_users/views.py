@@ -318,12 +318,22 @@ def generate_otp(request):
         contact = user_data
         try:
             # Find billing based on the contact method used
-            billing = Billing.objects.get(
-                user__email=contact if otp_method == 'email' else None,
-                user__phone_number=contact if otp_method == 'phone' else None,
+            if otp_method == 'email':
+                user = User.objects.filter(email=contact).first()
+            else:
+                user = User.objects.filter(phone_number=contact).first()
+
+            if not user:
+                return JsonResponse({"message": "User not found"}, status=404)
+
+            billing = Billing.objects.filter(
+                user=user,
                 payment_status='pending'
-            )
-            user = billing.user
+            ).first()
+
+            if not billing:
+                return JsonResponse({"message": "No pending transaction found"}, status=404)
+
             otp = ''.join(random.choices(string.digits, k=6))
             billing.otp = otp
             billing.save()
@@ -331,23 +341,23 @@ def generate_otp(request):
             if otp_method == 'email':
                 email_context = {
                     'otp': otp,
-                    'full_name': user.full_name,
-                    'email': user.email,
-                    'phone_number': user.phone_number,
-                    'company_name': user.company_name,
-                    'designation': user.designation,
-                    'industry': user.industry,
-                    'total_price': billing.total_price
+                    'full_name': user.full_name or 'User',
+                    'email': user.email or contact,
+                    'phone_number': user.phone_number or 'N/A',
+                    'company_name': user.company_name or 'N/A',
+                    'designation': user.designation or 'N/A',
+                    'industry': user.industry or 'N/A',
+                    'total_price': billing.total_price or 0
                 }
                 response = send_sms(contact, email_context)
             else:
                 print('sending sms')
-                response = send_sms_via_fast2sms(contact, otp, user.full_name)
+                response = send_sms_via_fast2sms(contact, otp, user.full_name or 'User')
             
             if not response["status"]:
                 return JsonResponse({"message": f"Failed to send OTP: {response['message']}"}, status=500)
             
-            # Mask the contact information based on the method used
+            # Mask the contact information
             masked_contact = (
                 f"{'*' * (len(contact.split('@')[0]) - 2)}{contact[-2:]}@{contact.split('@')[1]}"
                 if otp_method == 'email'
@@ -358,9 +368,8 @@ def generate_otp(request):
                 "contact": masked_contact
             })
             
-        except Billing.DoesNotExist:
-            return JsonResponse({"message": "No pending transaction found"}, status=404)
         except Exception as e:
+            print(f"Error in resend: {str(e)}")
             return JsonResponse({"message": str(e)}, status=500)
     
     # Regular OTP generation flow
@@ -382,27 +391,28 @@ def generate_otp(request):
 
     try:
         # Try to get existing user or create new one
-        try:
-            if otp_method == 'email':
-                user = User.objects.filter(email=email).order_by('-created_at').first()
-            else:
-                user = User.objects.filter(phone_number=phone).order_by('-created_at').first()
-            # Update user details
-            user.full_name = full_name
-            user.phone_number = phone if phone else user.phone_number
-            user.email = email if email else user.email
-            user.company_name = company_name
-            user.designation = designation
-            user.industry = industry
-        except User.DoesNotExist:
+        if otp_method == 'email':
+            user = User.objects.filter(email=email).first()
+        else:
+            user = User.objects.filter(phone_number=phone).first()
+
+        if user:
+            # Update existing user
+            user.full_name = full_name or user.full_name
+            user.phone_number = phone or user.phone_number
+            user.email = email or user.email
+            user.company_name = company_name or user.company_name
+            user.designation = designation or user.designation
+            user.industry = industry or user.industry
+        else:
             # Create new user
-            user = User(
-                full_name=full_name,
+            user = User.objects.create(
+                full_name=full_name or 'User',
                 email=email,
                 phone_number=phone,
-                company_name=company_name,
-                designation=designation,
-                industry=industry
+                company_name=company_name or 'N/A',
+                designation=designation or 'N/A',
+                industry=industry or 'N/A'
             )
         user.save()
         
@@ -412,36 +422,28 @@ def generate_otp(request):
         if otp_method == 'email':
             email_context = {
                 'otp': otp,
-                'full_name': full_name,
-                'email': email,
-                'phone_number': phone,
-                'company_name': company_name,
-                'designation': designation,
-                'industry': industry,
+                'full_name': user.full_name or 'User',
+                'email': user.email or email,
+                'phone_number': user.phone_number or 'N/A',
+                'company_name': user.company_name or 'N/A',
+                'designation': user.designation or 'N/A',
+                'industry': user.industry or 'N/A',
                 'total_price': total_price
             }
             response = send_sms(email, email_context)
         else:
-            response = send_sms_via_fast2sms(phone, otp, full_name)
+            response = send_sms_via_fast2sms(phone, otp, user.full_name or 'User')
         
         if not response["status"]:
             return JsonResponse({"message": f"Failed to send OTP: {response['message']}"}, status=500)
         
-        billing, created = Billing.objects.get_or_create(
+        billing = Billing.objects.create(
             user=user,
             payment_status='pending',
-            defaults={
-                'selected_courses': selected_courses,
-                'total_price': total_price
-            }
+            selected_courses=selected_courses,
+            total_price=total_price,
+            otp=otp
         )
-        
-        if not created:
-            billing.selected_courses = selected_courses
-            billing.total_price = total_price
-        
-        billing.otp = otp
-        billing.save()
         
         # Mask contact based on OTP method
         contact = email if otp_method == 'email' else phone
