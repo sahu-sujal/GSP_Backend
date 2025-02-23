@@ -8,6 +8,8 @@ services:
       - "8080:8080"
     volumes:
       - /home/admin/GSP_Backend:/app
+      - /usr/bin/wkhtmltopdf:/usr/bin/wkhtmltopdf  # Mount system wkhtmltopdf binary
+      - /lib/x86_64-linux-gnu/:/lib/x86_64-linux-gnu/  # Ensure required shared libraries are available
     deploy:
       replicas: 2  # Run 2 replicas
       restart_policy:
