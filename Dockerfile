@@ -4,6 +4,11 @@ WORKDIR /app
 
 COPY . .
 
+RUN apt-get update && apt-get install -y \
+    wkhtmltopdf \
+    libxrender1 libxext6 libfontconfig1 && \
+    rm -rf /var/lib/apt/lists/*
+
 RUN python3 -m pip install -r requirements.txt
 
 RUN  python3 manage.py migrate
