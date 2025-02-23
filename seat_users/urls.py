@@ -17,7 +17,11 @@ from .views import (
     get_courses_by_city,
     generate_pdf,
     populate_initial_data,
-    test,
+    admin_register,
+    admin_login,
+    get_admin_dashboard_data,
+    download_users_data,
+    download_billings_data
 )
 
 urlpatterns = [
@@ -39,5 +43,9 @@ urlpatterns = [
     path('seats-by-city', get_cities_with_seats, name='get_seats_by_city'),  # Fixed endpoint
     path('generate-pdf', generate_pdf, name='generate_pdf'),  # Updated with trailing slash
     path('populate_initial_data', populate_initial_data, name='populate_initial_data'),
-    path('test', test, name='test'),
+    path('admin_login',admin_login,name='admin_login'),
+    path('admin_register',admin_register,name='admin_register'),
+    path('get_admin_dashboard_data',get_admin_dashboard_data,name='get_admin_dashboard_data'),
+    path('download/users', download_users_data, name='download_users_data'),
+    path('download/billings', download_billings_data, name='download_billings_data')
 ]

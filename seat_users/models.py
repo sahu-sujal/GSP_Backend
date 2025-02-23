@@ -96,3 +96,16 @@ class User(models.Model):
             'locked_courses': self.locked_courses,
             'industry': self.industry
         }
+        
+class AdoptionAdmin(models.Model):
+    username = models.CharField(max_length=255)
+    password = models.CharField(max_length=255)
+    created_at = models.DateTimeField(default=timezone.now)
+    
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'username': self.username,
+            'created_at': self.created_at.isoformat()
+        }
+    

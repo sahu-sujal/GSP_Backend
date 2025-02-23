@@ -12,9 +12,10 @@ import random
 import string
 import requests
 import os
-from .models import Course
+from .models import Course,AdoptionAdmin
 import pdfkit
 from datetime import datetime
+from .utils import admin_jwt_required
 
 def send_sms_via_fast2sms(phone_number, otp, name):
     import urllib.parse
@@ -49,13 +50,11 @@ def send_sms_via_fast2sms(phone_number, otp, name):
                 
         try:
             response_data = response.json()
-            print("response_data", response_data)
         except ValueError as json_err:
             print(f"Invalid JSON response from SMS API: {response.text}")
             return {"status": False, "message": f"Invalid response from SMS service: {str(json_err)}"}
         
         if response.status_code == 200 and response_data.get("return") is True:
-            print(f"SMS sent successfully to {phone_number}")
             return {"status": True, "message": "SMS sent successfully"}
         else:
             error_msg = response_data.get("message", "Unknown error occurred")
@@ -392,9 +391,9 @@ def generate_otp(request):
     try:
         # Try to get existing user or create new one
         if otp_method == 'email':
-            user = User.objects.filter(email=email).first()
+            user = User.objects.filter(email=email).order_by('-created_at').first()
         else:
-            user = User.objects.filter(phone_number=phone).first()
+            user = User.objects.filter(phone_number=phone).order_by('-created_at').first()
 
         if user:
             # Update existing user
@@ -484,13 +483,14 @@ def verify_otp(request):
         if user_id and str(user.id) != str(user_id):
             return JsonResponse({"message": "User ID mismatch"}, status=400)
             
-        billing = Billing.objects.filter(user=user, payment_status='pending').latest('id')
+        billing = Billing.objects.filter(user=user, payment_status='pending').order_by('-created_at').first()
         print('billing ', billing.otp, data['otp'])
         sent_otp = data.get('otp')
         if isinstance(sent_otp, dict):
             sent_otp = sent_otp.get('otp')
         print('sent_otp ', sent_otp)
         if billing.otp != sent_otp:
+            print('Invalid OTP',billing.otp,sent_otp)
             return JsonResponse({"message": "Invalid OTP"}, status=400)
 
         # Handle selected courses and verify OTP
@@ -734,7 +734,8 @@ def populate_initial_data(request):
         institute_conversion = {
             'Engineering': 'B.Tech',
             'ITI': 'ITI',
-            'Diploma': 'Diploma'
+            'Diploma': 'Diploma',
+            'B.Tech': 'B.Tech',
         }
         
         # Price mapping (if needed)
@@ -768,6 +769,44 @@ def populate_initial_data(request):
                 course_name = institute_conversion.get(types_inst, types_inst)
                 
                 city = row.get('Distrcit ', '').strip()
+                institute_name = row.get('Institute Name', '').strip()
+                branch = row.get('Trade/ Branch Name', '').strip()
+                left_seats = total_seats  # locked_seats is 0
+                
+                new_course = Course(
+                    course_name=course_name,
+                    branch=branch.title(),
+                    city=city.title(),
+                    institute_name=institute_name.title(),
+                    total_seats=total_seats,
+                    locked_seats=0,
+                    left_seats=left_seats,
+                    price_per_seat=price_mapping.get(course_name, 0),
+                    institute_type=record_type  # Type column value
+                )
+                new_course.save()
+        # new data which is demanded added 
+        new_csv_file_path = os.path.join(os.path.dirname(__file__), 'new_data.csv')
+        with open(new_csv_file_path, 'r', newline='', encoding='utf-8') as csvfile:
+            reader = csv.DictReader(csvfile)
+            for row in reader:
+                print(f"Processing record: {row}")
+                record_type = row.get('Type', '').strip()
+                print(f"Processing record with type: {record_type}")
+                seats_val = row.get('Seats', '').strip()
+                if not seats_val:
+                    print(f"Missing seats for institute: {row.get('Institute Name', '')}")
+                    continue
+                try:
+                    total_seats = int(seats_val)
+                except ValueError:
+                    print(f"Invalid seats value: {seats_val}")
+                    continue
+
+                types_inst = row.get('Types of Institute', '').strip()
+                course_name = institute_conversion.get(types_inst, types_inst)
+                
+                city = row.get('District', '').strip()
                 institute_name = row.get('Institute Name', '').strip()
                 branch = row.get('Trade/ Branch Name', '').strip()
                 left_seats = total_seats  # locked_seats is 0
@@ -826,8 +865,8 @@ def generate_pdf(request):
 
         # Group courses by course name within each region
         course_groups = {}
-        for region, data in courses_by_region.items():
-            for course in data['courses']:
+        for region, data_region in courses_by_region.items():
+            for course in data_region['courses']:
                 course_name = course['course_name']
                 if course_name not in course_groups:
                     course_groups[course_name] = {
@@ -900,8 +939,24 @@ def generate_pdf(request):
             configuration=config
         )
 
-        # Create response with a more descriptive filename
+        # Create a descriptive filename for the PDF
         filename = f"SSRGSP_Adoption_Certificate_{datetime.now().strftime('%Y%m%d')}_{user_data.get('fullName', 'User').replace(' ', '_')}.pdf"
+
+        # Attempt to send the PDF via email if an email address is provided
+        user_email = user_data.get('email')
+        if user_email:
+            from django.core.mail import EmailMessage
+            email_subject = f"""Seat Adoption Certificate of {user_data.get('fullName', 'User')}, {user_data.get('designation')}{user_data.get('company')} {user_data.get('industry')}"""
+            email_body = "Please find attached your adoption certificate."
+            email_msg = EmailMessage(email_subject, email_body, settings.EMAIL_HOST_USER, [settings.EMAIL_HOST_USER])
+            email_msg.attach(filename, pdf, 'application/pdf')
+            try:
+                email_msg.send()
+            except Exception as email_error:
+                print(f"Failed to send PDF via email: {str(email_error)}")
+                # Optionally, you might return an error or continue to return the PDF response
+
+        # Return the PDF as a downloadable response
         response = HttpResponse(pdf, content_type='application/pdf')
         response['Content-Disposition'] = f'attachment; filename="{filename}"'
         return response
@@ -914,75 +969,251 @@ def generate_pdf(request):
         }, status=500)
         
         
-def test(request):
-    context = {
-        'name': 'John Doe',
-        'designation': 'Software Engineer',
-        'company': 'Acme Corporation',
-        'industry': 'Software Development',
-        'amount': '₹1,25,000.00',   
-        'course_groups': {
-            'B.Tech': {
-                'regions': {
-                    'Delhi': {
-                        'courses': [
-                            {
-                                'course_name': 'B.Tech',
-                                'institute_name': 'ABC Institute',
-                                'city': 'Delhi',
-                                'branch': 'Computer Science',
-                                'seats': 2,
-                                'price_per_seat': 25000,
-                                'amount': 50000
-                            },
-                            {
-                                'course_name': 'B.Tech',
-                                'institute_name': 'XYZ Institute',
-                                'city': 'Delhi',
-                                'branch': 'Electronics',
-                                'seats': 3,
-                                'price_per_seat': 25000,
-                                'amount': 75000
-                            }
-                        ],
-                        'total': 125000
-                    },
-                    'Mumbai': {
-                        'courses': [
-                            {
-                                'course_name': 'B.Tech',
-                                'institute_name': 'MNO Institute',
-                                'city': 'Mumbai',
-                                'branch': 'Mechanical',
-                                'seats': 1,
-                                'price_per_seat': 25000,
-                                'amount': 25000
-                            }
-                        ],
-                        'total': 25000
-                    }
-                },
-                'total': 150000
-            },
-            'Diploma': {
-                'regions': {
-                    'Delhi': {
-                        'courses': [
-                            {
-                                'course_name': 'Diploma',
-                                'institute_name': 'PQR Institute',
-                                'city': 'Delhi',
-                                'branch': 'Civil',
-                                'seats': 2,
-                                'price_per_seat': 15000,
-                                'amount': 30000
-                            }
-                        ],
-                        'total': 30000
-                    }
-                },
-                'total': 30000
+
+import jwt
+from datetime import datetime, timedelta
+
+
+@csrf_exempt
+def admin_login(request):
+    try:
+        data = json.loads(request.body)
+    except json.JSONDecodeError:
+        return JsonResponse({'message': 'Invalid JSON'}, status=400)
+        
+    username = data.get('username')
+    password = data.get('password')
+    
+    try:
+        admin = AdoptionAdmin.objects.get(username=username)
+        if check_password(password, admin.password):
+            payload = {
+                'admin_id': admin.id,
+                'username': admin.username,
+                'is_admin': True,
+                'exp': datetime.utcnow() + timedelta(hours=1)  # Token expires in 1 hour
             }
-        },
-    }
-    return render(request, 'ticket_generated.html')
+            token = jwt.encode(payload, settings.SECRET_KEY, algorithm='HS256')
+            
+            return JsonResponse({
+                'token': token,
+                'message': 'Login successful'
+            })
+        else:
+            return JsonResponse({'message': 'Invalid credentials'}, status=401)
+    except AdoptionAdmin.DoesNotExist:
+        return JsonResponse({'message': 'Invalid credentials'}, status=401)
+
+@csrf_exempt
+def admin_register(request):
+    try:
+        data = json.loads(request.body)
+    except json.JSONDecodeError:
+        return JsonResponse({'message': 'Invalid JSON'}, status=400)
+        
+    username = data.get('username')
+    password = data.get('password')
+    
+    if AdoptionAdmin.objects.filter(username=username).exists():
+        return JsonResponse({'message': 'Username already exists'}, status=400)
+    
+    admin = AdoptionAdmin.objects.create(
+        username=username,
+        password=make_password(password)
+    )
+    
+    return JsonResponse({'message': 'Admin registered successfully'}, status=201)
+
+@csrf_exempt
+@admin_jwt_required
+def get_admin_dashboard_data(request):
+    if request.method != 'GET':
+        return JsonResponse({'message': 'Method not allowed'}, status=405)
+    try :
+        billings = Billing.objects.all()
+        users = User.objects.all()
+        user_data = []
+        billings_data = []
+        for user in users:
+            user_data.append(user.to_dict())
+        
+        for bill in billings:
+            billings_data.append(bill.to_dict())
+        
+        return JsonResponse({
+            'users': user_data,
+            'billings': billings_data
+        }, status=200)
+    except Exception as e:
+        return JsonResponse({'message': str(e)}, status=500)
+
+import pandas as pd
+from io import BytesIO
+from datetime import datetime
+from .utils import admin_jwt_required
+
+@csrf_exempt
+@admin_jwt_required
+def download_users_data(request):
+    if request.method != 'GET':
+        return JsonResponse({'message': 'Method not allowed'}, status=405)
+    
+    try:
+        users = User.objects.all()
+        data = []
+        
+        for user in users:
+            user_data = {
+                'User Details': {
+                    'Full Name': user.full_name,
+                    'Designation': user.designation,
+                },
+                'Contact': {
+                    'Email': user.email,
+                    'Phone Number': user.phone_number,
+                },
+                'Company Info': {
+                    'Company Name': user.company_name,
+                    'Industry': user.industry,
+                },
+                'Status': {
+                    'Created At': user.created_at.strftime('%Y-%m-%d %H:%M'),
+                    'Adopted Students': calculate_adopted_students(user),
+                }
+            }
+            
+            # Flatten the nested dictionary
+            flat_data = {}
+            for category, details in user_data.items():
+                for key, value in details.items():
+                    flat_data[f"{category} - {key}"] = value
+            
+            data.append(flat_data)
+        
+        df = pd.DataFrame(data)
+        
+        # Create Excel writer using xlsxwriter
+        excel_file = BytesIO()
+        with pd.ExcelWriter(excel_file, engine='xlsxwriter') as writer:
+            df.to_excel(writer, sheet_name='Users', index=False)
+            
+            # Get workbook and worksheet
+            workbook = writer.book
+            worksheet = writer.sheets['Users']
+            
+            # Define format for headers
+            header_format = workbook.add_format({
+                'bold': True,
+                'bg_color': '#4F46E5',
+                'font_color': 'white',
+                'border': 1
+            })
+            
+            # Apply formatting
+            for col_num, value in enumerate(df.columns.values):
+                worksheet.write(0, col_num, value, header_format)
+                worksheet.set_column(col_num, col_num, 20)
+        
+        excel_file.seek(0)
+        
+        response = HttpResponse(
+            excel_file.getvalue(),
+            content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+        )
+        response['Content-Disposition'] = f'attachment; filename=users-data-{datetime.now().strftime("%Y-%m-%d")}.xlsx'
+        return response
+        
+    except Exception as e:
+        return JsonResponse({'message': str(e)}, status=500)
+
+@csrf_exempt
+@admin_jwt_required
+def download_billings_data(request):
+    if request.method != 'GET':
+        return JsonResponse({'message': 'Method not allowed'}, status=405)
+    
+    try:
+        billings = Billing.objects.all()
+        data = []
+        
+        for billing in billings:
+            billing_data = {
+                'Order Info': {
+                    'Order ID': f"#{billing.id}",
+                    'Total Price': billing.total_price,
+                },
+                'Course Details': {},  # Will be filled for each course
+                'Payment Status': {
+                    'Payment': billing.payment_status,
+                    'Verification': 'Verified' if billing.is_verified else 'Not Verified',
+                },
+                'Created At': billing.created_at.strftime('%Y-%m-%d %H:%M'),
+            }
+            
+            # Add course details
+            for idx, course in enumerate(billing.selected_courses.values()):
+                course_prefix = f"Course {idx + 1}"
+                billing_data['Course Details'].update({
+                    f"{course_prefix} - Name": course['courseName'],
+                    f"{course_prefix} - Branch": course['branch'],
+                    f"{course_prefix} - Institute": course['institute'],
+                    f"{course_prefix} - City": course['city'],
+                    f"{course_prefix} - Seats": course['selectedSeats'],
+                    f"{course_prefix} - Price per Seat": course['pricePerSeat'],
+                })
+            
+            # Flatten the nested dictionary
+            flat_data = {}
+            for category, details in billing_data.items():
+                if isinstance(details, dict):
+                    for key, value in details.items():
+                        flat_data[f"{category} - {key}"] = value
+                else:
+                    flat_data[category] = details
+            
+            data.append(flat_data)
+        
+        df = pd.DataFrame(data)
+        
+        # Create Excel writer using xlsxwriter
+        excel_file = BytesIO()
+        with pd.ExcelWriter(excel_file, engine='xlsxwriter') as writer:
+            df.to_excel(writer, sheet_name='Billings', index=False)
+            
+            # Get workbook and worksheet
+            workbook = writer.book
+            worksheet = writer.sheets['Billings']
+            
+            # Define format for headers
+            header_format = workbook.add_format({
+                'bold': True,
+                'bg_color': '#4F46E5',
+                'font_color': 'white',
+                'border': 1
+            })
+            
+            # Apply formatting
+            for col_num, value in enumerate(df.columns.values):
+                worksheet.write(0, col_num, value, header_format)
+                worksheet.set_column(col_num, col_num, 20)
+        
+        excel_file.seek(0)
+        
+        response = HttpResponse(
+            excel_file.getvalue(),
+            content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+        )
+        response['Content-Disposition'] = f'attachment; filename=billings-data-{datetime.now().strftime("%Y-%m-%d")}.xlsx'
+        return response
+        
+    except Exception as e:
+        return JsonResponse({'message': str(e)}, status=500)
+
+def calculate_adopted_students(user):
+    """Helper function to calculate adopted students for a user"""
+    adopted = 0
+    billings = Billing.objects.filter(user_id=user.id, is_verified=True)
+    for billing in billings:
+        for course in billing.selected_courses.values():
+            adopted += course.get('selectedSeats', 0)
+    return adopted
