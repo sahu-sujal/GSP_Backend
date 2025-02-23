@@ -18,6 +18,7 @@ RUN python -m pip install --no-cache-dir pandas
 RUN python -m pip install --no-cache-dir openpyxl
 RUN python -m pip install --no-cache-dir xlsxwriter
 
+RUN python manage.py makemigrations
 RUN python3 manage.py migrate
 
 EXPOSE 8080/tcp
