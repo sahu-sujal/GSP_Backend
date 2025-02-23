@@ -11,8 +11,14 @@ RUN apt-get update && apt-get install -y \
 
 RUN python3 -m pip install -r requirements.txt
 
-RUN  python3 manage.py migrate
+# Installing additional Python packages
+RUN python -m pip install pyjwt
+RUN python -m pip install pandas
+RUN python -m pip install openpyxl
+RUN python -m pip install xlsxwriter
+
+RUN python3 manage.py migrate
 
 EXPOSE 8080/tcp
 
-CMD ["python3","manage.py","runserver","0.0.0.0:8080"]
+CMD ["python3", "manage.py", "runserver", "0.0.0.0:8080"]
