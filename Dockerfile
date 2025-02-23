@@ -12,10 +12,11 @@ RUN apt-get update && apt-get install -y \
 RUN python3 -m pip install -r requirements.txt
 
 # Installing additional Python packages
-RUN python -m pip install pyjwt
-RUN python -m pip install pandas
-RUN python -m pip install openpyxl
-RUN python -m pip install xlsxwriter
+RUN python -m pip install --no-cache-dir PyJWT
+RUN python -m pip uninstall -y jwt
+RUN python -m pip install --no-cache-dir pandas
+RUN python -m pip install --no-cache-dir openpyxl
+RUN python -m pip install --no-cache-dir xlsxwriter
 
 RUN python3 manage.py migrate
 
